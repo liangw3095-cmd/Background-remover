@@ -9,6 +9,8 @@ background, where red is the suppressed channel. Run it on a cutout.py output.
 Usage: python3 fill_hair.py SRC_IMAGE CUTOUT_PNG OUT_PNG [--gap-seeds "x,y;x,y"]
   --gap-seeds  keep the enclosed areas containing these points clear (real
                background seen through a gap), walled off by the hair outlines.
+               Needed where bg shows below the hair tips but is enclosed by hair
+               and body, e.g. a tilted head (Ilse Varga, Tired: "420,592").
 """
 import sys
 import numpy as np
