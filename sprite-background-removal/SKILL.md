@@ -11,7 +11,7 @@ The scripts are in `scripts/` in this skill's folder and are tested. Run them as
 
 ## Sprites
 
-1. **Match each image to an expression** by looking at it (they often arrive out of order). Standard order: Neutral, Happy, Playful, Tired, Sad, Wary, Angry, Shocked, Embarrassed, Strained.
+1. **Match each image to an expression** by looking at it (they often arrive out of order). Standard order: Neutral, Happy, Playful, Tired, Sad, Wary, Angry, Shocked, Embarrassed, Thinking.
 2. **Run once**, mapping every upload to its expression (uploads are only read):
    ```
    python3 <skill folder>/scripts/cutout.py "Full Name" out 1.webp=Neutral 2.webp=Happy ...

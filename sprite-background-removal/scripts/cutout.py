@@ -23,7 +23,7 @@ from scipy import ndimage as ndi
 EXTS = (".png", ".jpg", ".jpeg", ".webp")
 
 ORDER = ["Neutral", "Happy", "Playful", "Tired", "Sad", "Wary",
-         "Angry", "Shocked", "Embarrassed", "Strained"]
+         "Angry", "Shocked", "Embarrassed", "Thinking"]
 
 
 def cut(path, despill_all=True, bg_thr=10.0):
@@ -95,7 +95,17 @@ def cut(path, despill_all=True, bg_thr=10.0):
         # either one alone under- or over-counts the bg in a bluish mix.
         own, alt = tint / tB, make_tint(*other)(C) / other[3]
         both = (own > 0.1) & (alt > 0.1)
-        tint = np.where(both, tB * (own + alt) / 2, tint)
+        # Strokes only the other reading sees, touching the bg or such a mix
+        # with no outline between, are the cores of a see-through effect
+        # (bluish smoke over mint), not outlined clothes or eyes: mix them too.
+        lab, n = ndi.label((alt > 0.15) & ~both & (dist > bg_thr))
+        if n:
+            idx = np.arange(1, n + 1)
+            width = ndi.maximum(ndi.distance_transform_edt(lab > 0), lab, idx)
+            touch = ndi.maximum(ndi.binary_dilation((dist <= bg_thr) | both, iterations=2), lab, idx)
+            thin = np.isin(lab, idx[(width <= 15) & (touch > 0)])
+            both |= thin
+        tint = np.where(both, tB * (np.maximum(own, 0) + alt) / 2, tint)
 
     Y = C @ lum
     YB = float(B @ lum)
