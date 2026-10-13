@@ -1,16 +1,14 @@
 #!/usr/bin/env python3
 """Regression check for the sprite-background-removal skill.
 
-Pulls cutout.py and card_corners.py out of SKILL.md (so the code tested is the
-code the skill writes out), runs them on synthetic sprites and ID cards with a
-known right answer, and fails if a cutout drifts. Some sprites go through lossy
+Runs the skill's scripts (sprite-background-removal/scripts/) on synthetic
+sprites and ID cards with a known right answer, and fails if a cutout drifts. Some sprites go through lossy
 WebP first, like images pasted into a chat.
 
 Usage: python3 tests/check_skill.py [--keep DIR]
 """
 import io
 import os
-import re
 import subprocess
 import sys
 import tempfile
@@ -19,7 +17,7 @@ from PIL import Image, ImageDraw
 from scipy import ndimage as ndi
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SKILL = os.path.join(ROOT, "sprite-background-removal", "SKILL.md")
+SCRIPTS = os.path.join(ROOT, "sprite-background-removal", "scripts")
 
 W, H, SS = 832, 1216, 4
 LINE = (40, 30, 35)
@@ -130,10 +128,6 @@ def main():
     keep = sys.argv[sys.argv.index("--keep") + 1] if "--keep" in sys.argv else None
     work = keep or tempfile.mkdtemp()
     os.makedirs(work, exist_ok=True)
-    blocks = re.findall(r"```python\n(.*?)```", open(SKILL).read(), re.S)
-    assert len(blocks) == 2, "SKILL.md should hold cutout.py and card_corners.py"
-    for name, code in zip(["cutout.py", "card_corners.py"], blocks):
-        open(os.path.join(work, name), "w").write(code)
 
     failures = []
 
@@ -158,8 +152,9 @@ def main():
 
     for name, (bg, _, _, webp, max_off) in SPRITES.items():
         d = os.path.join(work, name)
-        subprocess.run([sys.executable, os.path.join(work, "cutout.py"), "Test Girl",
-                        os.path.join(d, "in"), os.path.join(d, "out"), "--despill-all"],
+        subprocess.run([sys.executable, os.path.join(SCRIPTS, "cutout.py"), "Test Girl",
+                        os.path.join(d, "out"), os.path.join(d, "in", "Neutral.png") + "=Neutral",
+                        "--sheet", os.path.join(d, "sheet.png")],
                        check=True, stdout=subprocess.DEVNULL)
         out = np.asarray(Image.open(os.path.join(d, "out", "Test Girl, Neutral.png"))).astype(float)
         oa = out[..., 3] / 255
@@ -195,7 +190,7 @@ def main():
     for label, border in [("plain card", 0), ("bordered card", 16)]:
         src, dst = os.path.join(work, f"{label}.png"), os.path.join(work, f"{label} out.png")
         rim = make_card(src, border)
-        subprocess.run([sys.executable, os.path.join(work, "card_corners.py"), src, dst],
+        subprocess.run([sys.executable, os.path.join(SCRIPTS, "card_corners.py"), src, dst],
                        check=True, stdout=subprocess.DEVNULL)
         out = np.asarray(Image.open(dst)).astype(float)
         a = out[..., 3] / 255
