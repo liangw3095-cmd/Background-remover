@@ -7,12 +7,12 @@ description: "Cut flat-colour backgrounds out of character sprite sets and deliv
 
 Use this whenever Kom sends a batch of character sprite renders (Civitai / Illustrious, flat green or other single-colour background) and asks for the background removed, or sends an exported ID card PNG whose rounded corners came out white.
 
-The script below is tested: it handles vivid AND pale backgrounds, clean anti-aliased line-art edges, thin hair strands, gaps between hair and neck, the pale rim generators leave along the image border (e.g. where a blazer touches the right edge), and soft effects like sigh puffs. Do not rewrite it from scratch; write it out and run it.
+The script below is tested: it handles vivid AND pale backgrounds, clean anti-aliased line-art edges, thin hair strands, gaps between hair and neck, clothes cut off by the frame (they stay solid; the pale rim generators leave there is repaired), soft effects like sigh puffs, and lossy WebP/JPEG input such as images pasted into a chat. Do not rewrite it from scratch; write it out and run it. `tests/check_skill.py` in the Background-remover repo checks it against synthetic sprites with known answers.
 
 ## Workflow (sprites)
 
 1. **Match images to expressions** by looking at them (they often arrive out of order). The standard order is: Neutral, Happy, Playful, Tired, Sad, Wary, Angry, Shocked, Embarrassed, Strained.
-2. **Copy** each image into a fresh folder as `in/<Expression>.png` (e.g. `in/Neutral.png`). Work on copies, never the uploads.
+2. **Copy** each image into a fresh folder as `in/<Expression>.<ext>` (e.g. `in/Neutral.png`; `.webp` and `.jpg` are fine). Work on copies, never the uploads.
 3. **Write `cutout.py`** (below) into the scratch/working folder and run (needs numpy, Pillow and scipy; `pip install scipy` if the import fails):
    ```
    python3 cutout.py "Full Name" in out --despill-all --sheet sheet.png
@@ -23,6 +23,8 @@ The script below is tested: it handles vivid AND pale backgrounds, clean anti-al
 6. **Send** the files in the standard order with SendUserFile (display: attach), named exactly `Full Name, Expression.png`. Give a one or two line summary; mention any problem in the source image only if it affects the cutout.
 
 If a background came out pale instead of vivid, it still works, but suggest `(vivid green background:1.5)` for the next character.
+
+Images pasted into a chat arrive as lossy WebP, which blurs colour across 1-2 px. They cut out fine, but a 1-2 px gap between hair strands can keep a few light pixels; if that matters, ask for the original PNGs as files.
 
 **Background choice.** Anything on the character close to the background's hue (green eyes or a green ribbon on green; a navy blazer on blue) comes out see-through and greyed, with or without `--despill-all`. For such a character, suggest a contrasting key instead, e.g. `(vivid magenta background:1.5)` for green eyes (not for pink or purple hair). Avoid white or grey backgrounds: white clothes and white effects vanish into them.
 
@@ -72,9 +74,34 @@ def cut(path, despill_all=False, bg_thr=10.0):
         k, others = lo, [mid, hi]
         tint_of = lambda X: np.minimum(X[..., others[0]], X[..., others[1]]) - X[..., k]
     tB = float(tint_of(B[None, :])[0])
+
+    # Clothes cut off by the frame: generators leave a pale rim on the outer
+    # 1-2 px. Where the pixel 3 px in is clearly character and the rim pixel
+    # is lighter, give it that inner colour. (Rim over bg is cleared below.)
+    yy, xx = np.mgrid[:H, :W]
+    Fi = C[np.clip(yy, 2, H - 3), np.clip(xx, 2, W - 3)]
+    lum = np.array([0.299, 0.587, 0.114], np.float32)
+    frame = np.zeros((H, W), bool)
+    frame[:, :2] = frame[:, -2:] = True
+    frame[:2, :] = frame[-2:, :] = True
+    pale_rim = (C.min(-1) > 170) & (tint_of(C) > 3)
+    fix = (frame & ~pale_rim & (np.linalg.norm(Fi - B, axis=-1) > 60)
+           & (C @ lum > Fi @ lum + 8))
+    C[fix] = Fi[fix]
+    dist = np.linalg.norm(C - B, axis=-1)
     tint = tint_of(C)
 
-    nonbg = dist > bg_thr
+    Y = C @ lum
+    YB = float(B @ lum)
+    dY = Y - YB
+
+    # Generators leave a pale rim along the image border: it is background.
+    rim = np.zeros((H, W), bool)
+    rim[:, :4] = rim[:, -4:] = True
+    rim[:4, :] = rim[-4:, :] = True
+    rim &= (C.min(-1) > 170) & (tint > 3)
+
+    nonbg = (dist > bg_thr) & ~rim
     lab, n = ndi.label(nonbg)                      # drop tiny foreground specks
     if n:
         sizes = ndi.sum(np.ones_like(dist), lab, range(1, n + 1))
@@ -84,18 +111,34 @@ def cut(path, despill_all=False, bg_thr=10.0):
         sizes = ndi.sum(np.ones_like(dist), lab, range(1, n + 1))
         nonbg |= np.isin(lab, np.where(sizes < 15)[0] + 1)
 
-    # Only the outer ~2 px are anti-aliased; the image border counts as an edge.
-    edt_in = ndi.distance_transform_edt(np.pad(nonbg, 1, constant_values=False))[1:-1, 1:-1]
+    # Compressed images ring: faint near-bg pixels just outside the line art.
+    # Their alpha would be cut to 0 anyway; peel them off first so the edge
+    # band starts at the line instead of 1-2 px outside it.
+    localmax = ndi.maximum_filter(np.where(nonbg, dist, 0.0), size=7)
+    faint = nonbg & (dist < 0.15 * np.maximum(localmax, 20.0))
+    for _ in range(3):
+        peel = faint & ndi.binary_dilation(~nonbg)
+        nonbg &= ~peel
+
+    # Only the outer ~2 px are anti-aliased (the image border is not an edge).
+    edt_in = ndi.distance_transform_edt(np.pad(nonbg, 1, constant_values=True))[1:-1, 1:-1]
     solid = nonbg & (edt_in > 2.0)
     edge = nonbg & ~solid
 
     _, (iy, ix) = ndi.distance_transform_edt(~solid, return_indices=True)
 
     # Alpha relative to the strongest nearby stroke (the line art).
-    localmax = ndi.maximum_filter(np.where(nonbg, dist, 0.0), size=7)
     A = np.zeros((H, W), np.float32)
     A[solid] = 1.0
     A[edge] = np.clip(dist / np.maximum(localmax, 20.0), 0.0, 1.0)[edge]
+    # Lossy files (WebP, JPEG) keep brightness sharp but blur colour, so where
+    # the nearby stroke differs from the bg in brightness, measure alpha in
+    # brightness: against the darkest pixel nearby if this one is darker than
+    # the bg, the lightest if lighter.
+    Ymask = np.where(nonbg, dY, 0.0)
+    ext = np.where(dY < 0, ndi.minimum_filter(Ymask, size=5), ndi.maximum_filter(Ymask, size=5))
+    useY = edge & (np.abs(ext) > 40)
+    A[useY] = np.clip(dY / np.where(np.abs(ext) > 1e-3, ext, 1e-3), 0.0, 1.0)[useY]
 
     # Pixels tinted toward the bg hue are mostly background: cap their alpha.
     if tB > 8:
@@ -104,13 +147,14 @@ def cut(path, despill_all=False, bg_thr=10.0):
         # The median misses bg slivers 1-2 px wide (between hair strands):
         # strongly tinted pixels also use their own value.
         a_t = np.where(tint > 0.5 * tB, np.minimum(a_t, raw), a_t)
+        # Floor: a pixel can't be mostly bg if it is far from the bg in
+        # brightness (even black or white would need this much coverage).
+        # Keeps thin dark lines solid when compression blurs bg hue into them.
+        a_min = np.where(dY < 0, -dY / max(YB, 1.0), dY / max(255.0 - YB, 1.0))
+        a_t = np.maximum(a_t, np.clip(a_min, 0.0, 1.0))
         t = tint > 0.15 * tB
         A[t] = np.minimum(A[t], a_t[t])
-    # Generators leave a pale rim along the image border: clear it.
-    rim = np.zeros((H, W), bool)
-    rim[:, :4] = rim[:, -4:] = True
-    rim[:4, :] = rim[-4:, :] = True
-    A[rim & (C.min(-1) > 170) & (tint > 3)] = 0.0
+    A[rim] = 0.0
 
     A[A < 0.15] = 0.0
     A[A > 0.97] = 1.0
