@@ -18,10 +18,10 @@ The scripts are in `scripts/` in this skill's folder and are tested. Run them as
    ```
    It writes `out/Full Name, Expression.png` plus `sheet.png`, and prints one line per image. Add `--keep-tint` only if the character has eyes, clothes or hair in the background's hue.
 3. **Look at `sheet.png` once.** Zoom (crop + NEAREST upscale over a dark backdrop) only where a line says `see-through ... at x..-.. y..`: a sigh puff or similar effect there is correct; eyes or clothes there mean the background hue clashes (see below). Don't post-fix the art (pupils, pendants, drawing details): Kom asked for background removal and naming only.
-4. **Send** the files from `out/` in the standard order with SendUserFile (display: attach). One or two lines of summary.
+4. **Send** the files from `out/` back as downloads, in the standard order, with whatever file-sharing tool this chat has. One or two lines of summary.
 
 Add to the summary only when it applies:
-- `pale bg`: it still works; suggest `(vivid green background:1.5)` for the next character.
+- `dull bg` (a pale or muted background): it still works; suggest `(vivid green background:1.5)` for the next character.
 - See-through eyes or clothes: the character contains the background's hue. Suggest a contrasting key, e.g. `(vivid magenta background:1.5)` for green eyes (not for pink or purple hair).
 - `white/grey bg`: white parts may be lost; suggest a vivid green background.
 

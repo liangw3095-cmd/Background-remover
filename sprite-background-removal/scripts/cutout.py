@@ -171,7 +171,7 @@ def report(rgba, B, tB):
     if tB <= 8:
         notes.append("white/grey bg: white parts may be lost")
     elif tB < 60:
-        notes.append("pale bg")
+        notes.append("dull bg")
     a = rgba[..., 3]
     part = ndi.binary_erosion(a > 0, iterations=4) & (a < 204)
     lab, n = ndi.label(part)
