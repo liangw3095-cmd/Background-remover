@@ -99,7 +99,11 @@ def cut(path, despill_all=False, bg_thr=10.0):
 
     # Pixels tinted toward the bg hue are mostly background: cap their alpha.
     if tB > 8:
-        a_t = ndi.median_filter(np.clip(1.0 - tint / tB, 0.0, 1.0), size=5)
+        raw = np.clip(1.0 - tint / tB, 0.0, 1.0)
+        a_t = ndi.median_filter(raw, size=5)
+        # The median misses bg slivers 1-2 px wide (between hair strands):
+        # strongly tinted pixels also use their own value.
+        a_t = np.where(tint > 0.5 * tB, np.minimum(a_t, raw), a_t)
         t = tint > 0.15 * tB
         A[t] = np.minimum(A[t], a_t[t])
     # Generators leave a pale rim along the image border: clear it.
