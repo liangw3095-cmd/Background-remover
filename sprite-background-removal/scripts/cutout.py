@@ -38,15 +38,30 @@ def cut(path, despill_all=True, bg_thr=10.0):
     #   tint = that channel minus the larger other one.
     # One suppressed channel (magenta/yellow/cyan key):
     #   tint = the smaller other channel minus that channel.
-    order = np.argsort(B)                 # low, mid, high
-    lo, mid, hi = order
-    dominant = (B[hi] - B[mid]) >= (B[mid] - B[lo])
-    if dominant:
-        k, others = hi, [lo, mid]
-        tint_of = lambda X: X[..., k] - np.maximum(X[..., others[0]], X[..., others[1]])
-    else:
-        k, others = lo, [mid, hi]
-        tint_of = lambda X: np.minimum(X[..., others[0]], X[..., others[1]]) - X[..., k]
+    lo, mid, hi = np.argsort(B)           # low, mid, high
+    keys = [(True, hi, [lo, mid], B[hi] - B[mid]), (False, lo, [mid, hi], B[mid] - B[lo])]
+    keys.sort(key=lambda key: -key[3])    # the stronger signature first
+
+    def make_tint(dominant, k, others, _=None):
+        if dominant:
+            return lambda X: X[..., k] - np.maximum(X[..., others[0]], X[..., others[1]])
+        return lambda X: np.minimum(X[..., others[0]], X[..., others[1]]) - X[..., k]
+
+    key = keys[0]
+    two_way = keys[1][3] >= 0.4 * keys[0][3]
+    if two_way:
+        # In-between hues (mint, teal) read either way. Switch when only the
+        # first reading sees bg hue in much of the character: light-blue jeans
+        # or blue eyes are "low red" like mint, but not "green above all".
+        # (Real bg mixes such as sigh puffs show under both readings.)
+        inner = C[ndi.binary_erosion(dist > 60, iterations=6)]
+        if len(inner):
+            t0, t1 = [make_tint(*kk)(inner) > 0.3 * kk[3] for kk in keys]
+            if np.mean(t0 & ~t1) > 0.002 and np.mean(t1 & ~t0) < 0.5 * np.mean(t0 & ~t1):
+                key = keys[1]
+    dominant, k, others, _ = key
+    other = keys[1] if key is keys[0] else keys[0]
+    tint_of = make_tint(*key)
     tB = float(tint_of(B[None, :])[0])
 
     lum = np.array([0.299, 0.587, 0.114], np.float32)
@@ -75,6 +90,12 @@ def cut(path, despill_all=True, bg_thr=10.0):
     C[fy[fix], fx[fix]] = Fi[fix]
     dist = np.linalg.norm(C - B, axis=-1)
     tint = tint_of(C)
+    if two_way:
+        # Where both readings see bg hue (smoke, glows, spill), use their mean:
+        # either one alone under- or over-counts the bg in a bluish mix.
+        own, alt = tint / tB, make_tint(*other)(C) / other[3]
+        both = (own > 0.1) & (alt > 0.1)
+        tint = np.where(both, tB * (own + alt) / 2, tint)
 
     Y = C @ lum
     YB = float(B @ lum)

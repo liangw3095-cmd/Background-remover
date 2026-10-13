@@ -79,10 +79,12 @@ SPRITES = {
     "white": ((252, 250, 249), 0, False, None, None),
     "vivid_green_webp": ((30, 230, 50), 0, True, 80, 9),
     "pale_green_webp": ((226, 255, 218), 0, True, 80, 3.5),
+    "mint_blue_eyes": ((65, 252, 170), 0, True, None, 4),
 }
 
 
-# Eye colour per sprite: blue, except on mint, whose hue contains blue.
+# Eye colour per sprite: blue, except on one mint; mint_blue_eyes checks that
+# blue (low red, like mint) is not read as background.
 EYE = {"mint_green": (150, 90, 60)}
 
 
