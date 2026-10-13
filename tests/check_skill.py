@@ -30,8 +30,8 @@ DROP = (slice(328, 343), slice(583, 595))
 def sprite(eye):
     """Hard-edged RGBA sprite at SS x scale: line art, thin hair strands with a
     gap to the neck, a blazer cut off by the right and bottom frame (with a
-    dark fold running off the bottom), a tiny sweat drop and a 55% white sigh
-    puff."""
+    dark fold and a cool-white panel running off the bottom), a tiny sweat drop
+    and a 55% white sigh puff."""
     im = Image.new("RGBA", (W * SS, H * SS), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
     s = lambda *v: [x * SS for x in v]
@@ -49,6 +49,9 @@ def sprite(eye):
     d.polygon(s(180, 1216, 260, 830, 425, 790, 600, 830, 832, 900, 832, 1216), fill=(35, 40, 70, 255),
               outline=LINE, width=lw)
     d.line(s(500, 1060, 515, 1216), fill=LINE, width=2 * SS)
+    # a cool-white coat panel running off the bottom frame
+    d.polygon(s(330, 1216, 345, 1060, 420, 1060, 430, 1216), fill=(240, 248, 246, 255),
+              outline=LINE, width=2 * SS)
     d.polygon(s(385, 795, 425, 900, 465, 795), fill=(245, 245, 245, 255), outline=LINE, width=2 * SS)
     d.ellipse(s(585, 330, 592, 340), fill=(170, 210, 255, 255), outline=LINE, width=SS)
     puff = Image.new("RGBA", im.size, (0, 0, 0, 0))
@@ -71,6 +74,7 @@ SPRITES = {
     "vivid_green": ((30, 230, 50), 0, True, None, 3),
     "pale_green": ((190, 235, 195), 0, True, None, 2),
     "magenta": ((230, 40, 220), 0, False, None, 5.5),
+    "mint_green": ((41, 253, 182), 0, True, None, 4),
     "pale_green_gradient": ((190, 235, 195), 18, False, None, 3.5),
     "white": ((252, 250, 249), 0, False, None, None),
     "vivid_green_webp": ((30, 230, 50), 0, True, 80, 9),
@@ -78,10 +82,19 @@ SPRITES = {
 }
 
 
+# Eye colour per sprite: blue, except on mint, whose hue contains blue.
+EYE = {"mint_green": (150, 90, 60)}
+
+
 def make_sprites(root):
     rng = np.random.default_rng(0)
-    col, alpha = downsample(sprite((60, 110, 200)))
+    renders, colours = {}, {}
     for name, (bg, grad, rim, webp, _) in SPRITES.items():
+        eye = EYE.get(name, (60, 110, 200))
+        if eye not in renders:
+            renders[eye] = downsample(sprite(eye))
+        col, alpha = renders[eye]
+        colours[name] = col
         bgimg = np.broadcast_to(np.array(bg, float), (H, W, 3)).copy()
         bgimg -= np.linspace(0, grad, H)[:, None, None]
         img = col * alpha[..., None] + bgimg * (1 - alpha[..., None])
@@ -97,7 +110,7 @@ def make_sprites(root):
             im = Image.open(io.BytesIO(buf.getvalue())).convert("RGB")
         os.makedirs(os.path.join(root, name, "in"), exist_ok=True)
         im.save(os.path.join(root, name, "in", "Neutral.png"))
-    return col, alpha
+    return colours, alpha
 
 
 def make_card(path, border):
@@ -136,8 +149,7 @@ def main():
         if not ok:
             failures.append(label)
 
-    col, alpha = make_sprites(work)
-    gt = np.dstack([col, alpha])
+    colours, alpha = make_sprites(work)
     deep = ndi.binary_erosion(alpha > 0.999, iterations=3)
     deep[:, -3:] = deep[-3:, :] = False
     clear = alpha < 0.001
@@ -158,7 +170,8 @@ def main():
                        check=True, stdout=subprocess.DEVNULL)
         out = np.asarray(Image.open(os.path.join(d, "out", "Test Girl, Neutral.png"))).astype(float)
         oa = out[..., 3] / 255
-        cerr = np.abs(out[..., :3] - gt[..., :3]).max(-1)
+        col = colours[name]
+        cerr = np.abs(out[..., :3] - col).max(-1)
         print(name)
         if name == "white":
             # White on white can't be cut perfectly; the skin must keep its colour.

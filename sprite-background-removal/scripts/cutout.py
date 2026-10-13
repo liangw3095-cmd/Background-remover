@@ -49,17 +49,29 @@ def cut(path, despill_all=True, bg_thr=10.0):
         tint_of = lambda X: np.minimum(X[..., others[0]], X[..., others[1]]) - X[..., k]
     tB = float(tint_of(B[None, :])[0])
 
-    # Clothes cut off by the frame: generators leave a pale rim on the outer
-    # 1-2 px. Where the pixel 3 px in is clearly character and the rim pixel
-    # is lighter, give it that inner colour. (Rim over bg is cleared below.)
     lum = np.array([0.299, 0.587, 0.114], np.float32)
+    # Generators leave a pale rim on the outer few px. Where it lies over the
+    # bg (5 px in is bg, or the rim pixel is more bg-tinted than 5 px in) it
+    # is background. Cool-white clothes running off the frame continue inward,
+    # so they are not rim.
+    band = np.zeros((H, W), bool)
+    band[:, :4] = band[:, -4:] = True
+    band[:4, :] = band[-4:, :] = True
+    ry, rx = np.nonzero(band)
+    Cr, In = C[ry, rx], C[np.clip(ry, 5, H - 6), np.clip(rx, 5, W - 6)]
+    pale = ((Cr.min(-1) > 170) & (tint_of(Cr) > 3)
+            & ((np.linalg.norm(In - B, axis=-1) < 60) | (tint_of(Cr) > tint_of(In) + 3)))
+    rim = np.zeros((H, W), bool)
+    rim[ry[pale], rx[pale]] = True
+
+    # Clothes cut off by the frame: where the pixel 3 px in is clearly
+    # character and the outer 1-2 px are lighter, give them that inner colour.
     frame = np.zeros((H, W), bool)
     frame[:, :2] = frame[:, -2:] = True
     frame[:2, :] = frame[-2:, :] = True
-    fy, fx = np.nonzero(frame)
+    fy, fx = np.nonzero(frame & ~rim)
     Cf, Fi = C[fy, fx], C[np.clip(fy, 2, H - 3), np.clip(fx, 2, W - 3)]
-    fix = (~((Cf.min(-1) > 170) & (tint_of(Cf) > 3))
-           & (np.linalg.norm(Fi - B, axis=-1) > 60) & (Cf @ lum > Fi @ lum + 8))
+    fix = (np.linalg.norm(Fi - B, axis=-1) > 60) & (Cf @ lum > Fi @ lum + 8)
     C[fy[fix], fx[fix]] = Fi[fix]
     dist = np.linalg.norm(C - B, axis=-1)
     tint = tint_of(C)
@@ -67,12 +79,6 @@ def cut(path, despill_all=True, bg_thr=10.0):
     Y = C @ lum
     YB = float(B @ lum)
     dY = Y - YB
-
-    # Generators leave a pale rim along the image border: it is background.
-    rim = np.zeros((H, W), bool)
-    rim[:, :4] = rim[:, -4:] = True
-    rim[:4, :] = rim[-4:, :] = True
-    rim &= (C.min(-1) > 170) & (tint > 3)
 
     nonbg = (dist > bg_thr) & ~rim
     lab, n = ndi.label(nonbg)                      # drop tiny foreground specks
