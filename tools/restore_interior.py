@@ -3,9 +3,15 @@
 that sit well away from any real background (pink/red key: skin under lace, open mouths,
 lavender shading on white cloth).
 
-Usage: python3 restore_interior.py SRC_IMAGE CUTOUT_PNG OUT_PNG ["x0,y0,x1,y1;..."]
-Background = every flat bg-coloured area of 300+ px (enclosed pockets included); only
-pixels more than 6 px from it, and 5+ px from any bg-hue pixel, are restored. The optional
+Usage: python3 restore_interior.py SRC_IMAGE CUTOUT_PNG OUT_PNG ["x0,y0,x1,y1;..."] [--far N] [--diff N] [--hue-tol T]
+Only pixels more than --far px (default 6) from the background are restored: every flat
+bg-coloured area (enclosed pockets included) and every pixel of the bg's hue (dark mixes
+with it). --far 2 also reaches a light rim drawn just inside the outline (Nao Arakawa's
+blue hair on mint, whose rim and highlights the matting turns purple). Pixels the cutout
+changed by more than --diff (default 30) are restored; --diff 4 restores the whole interior
+evenly where the key shifted a garment slightly (Nao's lavender sweater speckles otherwise).
+Pixels whose chroma is within --hue-tol (default 0.15) of the bg's count as bg; 0.45 also
+keeps hair-and-bg mixes at strand tips out (else they come back as mint specks). The optional
 boxes are left alone: glowing effects that show the bg through (Mele Kealoha's water orb)
 and hair strands over bg beside the neck (they come back as red streaks).
 """
@@ -19,17 +25,20 @@ B = np.median(np.concatenate([C[:200, :120].reshape(-1, 3), C[:200, -120:].resha
 dist = np.linalg.norm(C - B, axis=-1)
 lab, n = ndi.label(dist < 45)
 sz = ndi.sum(np.ones_like(dist), lab, range(1, n + 1))
-bg = np.isin(lab, np.where(sz >= 300)[0] + 1)
-far = ndi.distance_transform_edt(~bg) > 6
-changed = (O[..., 3] < 250) | (np.abs(O[..., :3] - C).max(-1) > 30)
-R, G, Bc = C[..., 0], C[..., 1], C[..., 2]
-bglike = (G < 0.15 * R) & (Bc > 0.3 * R) & (R > 50)
-m = far & changed & ~ndi.binary_dilation(bglike, iterations=5) & ndi.binary_dilation(O[..., 3] > 0, iterations=2)
+bg = np.isin(lab, np.where(sz >= 20)[0] + 1)
+mx = C.max(-1)
+hue_tol = float(sys.argv[sys.argv.index("--hue-tol") + 1]) if "--hue-tol" in sys.argv else 0.15
+bglike = (np.linalg.norm(C / np.maximum(mx, 1)[..., None] - B / B.max(), axis=-1) < hue_tol) & (mx > 50)
+far_px = float(sys.argv[sys.argv.index("--far") + 1]) if "--far" in sys.argv else 6
+far = ndi.distance_transform_edt(~(bg | bglike)) > far_px
+diff = float(sys.argv[sys.argv.index("--diff") + 1]) if "--diff" in sys.argv else 30
+changed = (O[..., 3] < 250) | (np.abs(O[..., :3] - C).max(-1) > diff)
+m = far & changed & ndi.binary_dilation(O[..., 3] > 0, iterations=2)
 lab, n = ndi.label(ndi.binary_closing(m, iterations=2))
 for i in range(1, n + 1):
     ys, xs = np.where(lab == i)
     if len(ys) > 80: print(f"  {len(ys):6d}px x{xs.min()}-{xs.max()} y{ys.min()}-{ys.max()}")
-if len(sys.argv) > 4:
+if len(sys.argv) > 4 and not sys.argv[4].startswith("--"):
     for b in sys.argv[4].split(";"):
         x0, y0, x1, y1 = map(int, b.split(",")); m[y0:y1, x0:x1] = False
 O[m, :3] = C[m]; O[m, 3] = 255
