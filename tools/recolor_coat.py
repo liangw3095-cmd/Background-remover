@@ -4,6 +4,8 @@ Usage: python3 recolor_coat.py CUTOUT.png OUT.png R,G,B
 The coat is the large crimson area (blue above green, which leaves brown hair alone), plus its
 near-black maroon outline and buttons. Mouths and blush are too small or too light to be picked up.
 """
+import sys
+import numpy as np
 from PIL import Image
 from scipy import ndimage as ndi
 src, dst = sys.argv[1:3]
